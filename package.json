@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx watch _core/index.ts",
     "build": "esbuild _core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "cross-env NODE_ENV=production tsx _core/index.ts",
+    "start": "node dist/index.js",
     "test": "vitest run"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
     "jose": "6.1.0",
     "mongoose": "^9.1.0",
     "multer": "^2.0.2",
+    "esbuild": "^0.25.0",
     "superjson": "^1.13.3",
     "zod": "^4.1.12"
   },
@@ -28,7 +29,6 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.7.0",
     "cross-env": "^7.0.3",
-    "esbuild": "^0.25.0",
     "tsx": "^4.19.1",
     "typescript": "5.9.3",
     "vitest": "^2.1.4"
