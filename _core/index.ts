@@ -8,12 +8,14 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import avatarUploadRouter from "../avatar-upload";
 import { connectToMongoDB } from "../mongodb";
+import { initRealtime } from "./realtime";
 
 async function startServer() {
   await connectToMongoDB();
 
   const app = express();
   const server = createServer(app);
+  initRealtime(server);
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(",").map(origin => origin.trim()).filter(Boolean)
     : undefined;

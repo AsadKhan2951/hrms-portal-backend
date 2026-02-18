@@ -6,6 +6,7 @@ import { z } from "zod";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { createSessionToken, setSessionCookie } from "./_core/auth";
+import { emitChatMessage, emitNotification } from "./_core/realtime";
 
 export const appRouter = router({
   system: systemRouter,
@@ -61,6 +62,34 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         await db.updateUserAvatar(ctx.user.id, input.avatar);
+        return { success: true };
+      }),
+
+    // Change password
+    changePassword: protectedProcedure
+      .input(
+        z.object({
+          currentPassword: z.string().min(1, "Current password is required"),
+          newPassword: z.string().min(6, "New password must be at least 6 characters"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (input.currentPassword === input.newPassword) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "New password must be different from current password",
+          });
+        }
+
+        const isValid = await db.verifyUserPassword(ctx.user.id, input.currentPassword);
+        if (!isValid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid current password",
+          });
+        }
+
+        await db.updateUserPassword(ctx.user.id, input.newPassword);
         return { success: true };
       }),
   }),
@@ -270,6 +299,11 @@ export const appRouter = router({
           message: input.message,
         });
 
+        emitChatMessage({
+          senderId: ctx.user.id,
+          recipientId: input.recipientId,
+        });
+
         return { success: true };
       }),
 
@@ -449,6 +483,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await db.createNotification(input);
+        emitNotification({ userId: input.userId });
         return { success: true };
       }),
   }),

@@ -73,3 +73,21 @@ export async function authenticateRequest(req: Request): Promise<AuthenticatedUs
 
   return user;
 }
+
+export async function getUserIdFromCookieHeader(cookieHeader?: string) {
+  if (!cookieHeader) return null;
+  const cookies = parseCookieHeader(cookieHeader);
+  const token = cookies[COOKIE_NAME];
+  if (!token) return null;
+
+  try {
+    const secretKey = getSessionSecret();
+    const { payload } = await jwtVerify(token, secretKey, {
+      algorithms: ["HS256"],
+    });
+    const userId = typeof payload.userId === "string" ? payload.userId : "";
+    return userId || null;
+  } catch {
+    return null;
+  }
+}

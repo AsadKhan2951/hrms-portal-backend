@@ -164,6 +164,24 @@ export async function getUserByEmployeeIdAndPassword(
   return sanitizeUser(normalizeDoc(user));
 }
 
+export async function verifyUserPassword(userId: string, password: string) {
+  if (!(await optionalDb())) return false;
+  const user = await User.findById(toObjectId(userId)).lean();
+  if (!user) return false;
+
+  const hashed = user.password || "";
+  const isPasswordValid = await bcrypt.compare(password, hashed).catch(() => false);
+  const isPlainMatch = hashed.length === 0 ? false : hashed === password;
+
+  return isPasswordValid || isPlainMatch;
+}
+
+export async function updateUserPassword(userId: string, newPassword: string) {
+  await requireDb();
+  const hashed = await bcrypt.hash(newPassword, 10);
+  await User.findByIdAndUpdate(toObjectId(userId), { password: hashed });
+}
+
 export async function getUserById(id: string) {
   if (!(await optionalDb())) return undefined;
   const user = await User.findById(toObjectId(id)).lean();
