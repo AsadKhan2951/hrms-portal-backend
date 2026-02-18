@@ -488,6 +488,130 @@ export const appRouter = router({
       }),
   }),
 
+  employees: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getAllUsers();
+    }),
+
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          email: z.string().email(),
+          employeeId: z.string().min(1),
+          password: z.string().min(6),
+          department: z.string().min(1),
+          position: z.string().min(1),
+          cnicDocumentUrl: z.string().optional(),
+          offerLetterUrl: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+
+        try {
+          const employee = await db.createEmployee({
+            name: input.name,
+            email: input.email,
+            employeeId: input.employeeId,
+            password: input.password,
+            department: input.department,
+            position: input.position,
+          });
+
+          if (input.cnicDocumentUrl) {
+            await db.upsertEmployeeDocument({
+              userId: employee!.id,
+              documentType: "id_proof",
+              title: "CNIC Document",
+              documentUrl: input.cnicDocumentUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          if (input.offerLetterUrl) {
+            await db.upsertEmployeeDocument({
+              userId: employee!.id,
+              documentType: "offer_letter",
+              title: "Job Offer Letter",
+              documentUrl: input.offerLetterUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          return employee;
+        } catch (error: any) {
+          if (error?.code === 11000) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Employee ID or email already exists",
+            });
+          }
+          throw error;
+        }
+      }),
+
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().optional(),
+          email: z.string().email().optional(),
+          employeeId: z.string().optional(),
+          password: z.string().min(6).optional(),
+          department: z.string().optional(),
+          position: z.string().optional(),
+          cnicDocumentUrl: z.string().optional(),
+          offerLetterUrl: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+
+        try {
+          const { id, cnicDocumentUrl, offerLetterUrl, ...updates } = input;
+          const employee = await db.updateEmployee(id, updates);
+
+          if (cnicDocumentUrl) {
+            await db.upsertEmployeeDocument({
+              userId: id,
+              documentType: "id_proof",
+              title: "CNIC Document",
+              documentUrl: cnicDocumentUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          if (offerLetterUrl) {
+            await db.upsertEmployeeDocument({
+              userId: id,
+              documentType: "offer_letter",
+              title: "Job Offer Letter",
+              documentUrl: offerLetterUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          return employee;
+        } catch (error: any) {
+          if (error?.code === 11000) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Employee ID or email already exists",
+            });
+          }
+          throw error;
+        }
+      }),
+  }),
+
   // ==================== MEETINGS ====================
   meetings: router({
     // Create a new meeting

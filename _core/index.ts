@@ -7,6 +7,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import avatarUploadRouter from "../avatar-upload";
+import employeeDocumentUploadRouter from "../employee-document-upload";
 import { connectToMongoDB } from "../mongodb";
 import { initRealtime } from "./realtime";
 
@@ -33,6 +34,8 @@ async function startServer() {
   app.use("/uploads", express.static(uploadsDir));
   // Avatar upload endpoint
   app.use(avatarUploadRouter);
+  // Employee document upload endpoint
+  app.use(employeeDocumentUploadRouter);
   // tRPC API
   app.use(
     "/api/trpc",

@@ -18,6 +18,7 @@ import {
   ProjectTask,
   TimeEntry,
   User,
+  EmployeeDocument,
 } from "./models";
 
 type UpsertUserInput = {
@@ -180,6 +181,76 @@ export async function updateUserPassword(userId: string, newPassword: string) {
   await requireDb();
   const hashed = await bcrypt.hash(newPassword, 10);
   await User.findByIdAndUpdate(toObjectId(userId), { password: hashed });
+}
+
+export async function createEmployee(input: {
+  name: string;
+  email: string;
+  employeeId: string;
+  password: string;
+  department?: string;
+  position?: string;
+  role?: "user" | "admin";
+}) {
+  await requireDb();
+  const hashed = await bcrypt.hash(input.password, 10);
+  const openId = `emp-${input.employeeId.toLowerCase()}`;
+  const created = await User.create({
+    openId,
+    name: input.name,
+    email: input.email,
+    loginMethod: "custom",
+    role: input.role || "user",
+    employeeId: input.employeeId,
+    password: hashed,
+    department: input.department,
+    position: input.position,
+    lastSignedIn: new Date(0),
+  });
+  return sanitizeUser(normalizeDoc(created));
+}
+
+export async function updateEmployee(userId: string, updates: {
+  name?: string;
+  email?: string;
+  employeeId?: string;
+  password?: string;
+  department?: string;
+  position?: string;
+}) {
+  await requireDb();
+  const payload: Record<string, unknown> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.email !== undefined) payload.email = updates.email;
+  if (updates.employeeId !== undefined) payload.employeeId = updates.employeeId;
+  if (updates.department !== undefined) payload.department = updates.department;
+  if (updates.position !== undefined) payload.position = updates.position;
+  if (updates.password) {
+    payload.password = await bcrypt.hash(updates.password, 10);
+  }
+  await User.findByIdAndUpdate(toObjectId(userId), payload);
+  return getUserById(userId);
+}
+
+export async function upsertEmployeeDocument(input: {
+  userId: string;
+  documentType: "offer_letter" | "contract" | "id_proof" | "policy_acknowledgment" | "other";
+  title: string;
+  documentUrl: string;
+  uploadedBy: string;
+}) {
+  await requireDb();
+  await EmployeeDocument.findOneAndUpdate(
+    { userId: toObjectId(input.userId), documentType: input.documentType },
+    {
+      $set: {
+        title: input.title,
+        documentUrl: input.documentUrl,
+        uploadedBy: toObjectId(input.uploadedBy),
+      },
+    },
+    { upsert: true }
+  );
 }
 
 export async function getUserById(id: string) {
