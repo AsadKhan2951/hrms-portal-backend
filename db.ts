@@ -442,6 +442,14 @@ export async function getLatestPayslip(userId: string) {
   return normalizeDoc(payslip);
 }
 
+export async function getPayslipsByUser(userId: string) {
+  if (!(await optionalDb())) return [];
+  const payslips = await Payslip.find({ userId: toObjectId(userId) })
+    .sort({ year: -1, month: -1, createdAt: -1 })
+    .lean();
+  return normalizeDocs(payslips);
+}
+
 export async function getActiveAnnouncements() {
   if (!(await optionalDb())) return [];
   const now = new Date();
@@ -458,6 +466,60 @@ export async function getActiveAnnouncements() {
     if (rankDiff !== 0) return rankDiff;
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+}
+
+export async function getAnnouncementReadIds(userId: string) {
+  if (!(await optionalDb())) return [];
+  const reads = await AnnouncementRead.find({ userId: toObjectId(userId) }).lean();
+  return reads.map((read: any) => read.announcementId?.toString()).filter(Boolean);
+}
+
+export async function getAnnouncementsWithReadCounts() {
+  if (!(await optionalDb())) return [];
+  const announcements = await Announcement.find()
+    .sort({ createdAt: -1 })
+    .populate("createdBy")
+    .lean();
+
+  const ids = announcements.map((a: any) => a._id).filter(Boolean);
+  const readCounts = await AnnouncementRead.aggregate([
+    { $match: { announcementId: { $in: ids } } },
+    { $group: { _id: "$announcementId", count: { $sum: 1 } } },
+  ]);
+  const readCountMap = new Map(readCounts.map((entry: any) => [entry._id.toString(), entry.count]));
+
+  return announcements.map((announcement: any) => ({
+    ...normalizeDoc(announcement),
+    createdBy: announcement.createdBy ? normalizeDoc(announcement.createdBy as any) : undefined,
+    readCount: readCountMap.get(announcement._id.toString()) || 0,
+  }));
+}
+
+export async function createAnnouncement(data: {
+  title: string;
+  content: string;
+  priority: "low" | "medium" | "high";
+  createdBy: string;
+  expiresAt?: Date | null;
+  isActive?: boolean;
+}) {
+  await requireDb();
+  const created = await Announcement.create({
+    title: data.title,
+    content: data.content,
+    priority: data.priority,
+    createdBy: toObjectId(data.createdBy),
+    expiresAt: data.expiresAt || undefined,
+    isActive: data.isActive ?? true,
+  });
+  return normalizeDoc(created);
+}
+
+export async function deleteAnnouncement(id: string) {
+  await requireDb();
+  await Announcement.findByIdAndDelete(toObjectId(id));
+  await AnnouncementRead.deleteMany({ announcementId: toObjectId(id) });
+  return { success: true };
 }
 
 export async function getAllUsers() {
@@ -810,4 +872,228 @@ export async function deleteCalendarEvent(id: string) {
   await requireDb();
   await CalendarEvent.findByIdAndDelete(toObjectId(id));
   return true;
+}
+
+export async function getAllLeaveApplicationsWithUsers() {
+  await requireDb();
+  const leaves = await LeaveApplication.find()
+    .sort({ createdAt: -1 })
+    .populate("userId")
+    .lean();
+
+  return leaves.map((leave: any) => ({
+    ...normalizeDoc(leave),
+    user: leave.userId ? normalizeDoc(leave.userId as any) : undefined,
+  }));
+}
+
+export async function updateLeaveApplicationStatus(
+  id: string,
+  status: "pending" | "approved" | "rejected",
+  approverId: string,
+  rejectionReason?: string
+) {
+  await requireDb();
+  await LeaveApplication.findByIdAndUpdate(toObjectId(id), {
+    status,
+    approvedBy: toObjectId(approverId),
+    approvedAt: status === "approved" ? new Date() : undefined,
+    rejectionReason: status === "rejected" ? rejectionReason || "Rejected" : undefined,
+  });
+}
+
+export async function getAllFormSubmissionsWithUsers() {
+  await requireDb();
+  const forms = await FormSubmission.find()
+    .sort({ createdAt: -1 })
+    .populate("userId")
+    .lean();
+
+  return forms.map((form: any) => ({
+    ...normalizeDoc(form),
+    user: form.userId ? normalizeDoc(form.userId as any) : undefined,
+  }));
+}
+
+export async function updateFormSubmissionStatus(
+  id: string,
+  status: "submitted" | "under_review" | "resolved" | "closed",
+  responderId: string,
+  response?: string
+) {
+  await requireDb();
+  await FormSubmission.findByIdAndUpdate(toObjectId(id), {
+    status,
+    respondedBy: toObjectId(responderId),
+    response: response || undefined,
+  });
+}
+
+export async function getProjectsWithAssignments() {
+  await requireDb();
+  const projects = await Project.find().sort({ createdAt: -1 }).lean();
+  const projectIds = projects.map((p: any) => p._id);
+  const assignments = await ProjectAssignment.find({ projectId: { $in: projectIds } }).lean();
+  const userIds = Array.from(new Set(assignments.map((a: any) => String(a.userId))));
+  const users = await User.find({ _id: { $in: userIds.map(toObjectId) } }).lean();
+  const userMap = new Map(users.map((u: any) => [String(u._id), u]));
+
+  const tasks = await ProjectTask.find({ projectId: { $in: projectIds } }).lean();
+  const tasksByProject = new Map<string, any[]>();
+  tasks.forEach((task: any) => {
+    const id = String(task.projectId);
+    if (!tasksByProject.has(id)) tasksByProject.set(id, []);
+    tasksByProject.get(id)!.push(task);
+  });
+
+  return projects.map((project: any) => {
+    const projAssignments = assignments.filter((a: any) => String(a.projectId) === String(project._id));
+    const assignees = projAssignments
+      .map((a: any) => userMap.get(String(a.userId)))
+      .filter(Boolean)
+      .map((u: any) => u.name || u.employeeId || "Employee");
+
+    const projectTasks = tasksByProject.get(String(project._id)) || [];
+    const completed = projectTasks.filter((t: any) => t.status === "completed").length;
+    const total = projectTasks.length;
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    return {
+      ...normalizeDoc(project),
+      assignees,
+      tasks: total,
+      progress,
+    };
+  });
+}
+
+export async function getOngoingTasksWithAssignments() {
+  await requireDb();
+  const tasks = await ProjectTask.find({ status: { $ne: "completed" } })
+    .sort({ createdAt: -1 })
+    .lean();
+  const userIds = Array.from(new Set(tasks.map((t: any) => String(t.userId))));
+  const projectIds = Array.from(new Set(tasks.map((t: any) => String(t.projectId))));
+  const users = await User.find({ _id: { $in: userIds.map(toObjectId) } }).lean();
+  const projects = await Project.find({ _id: { $in: projectIds.map(toObjectId) } }).lean();
+  const userMap = new Map(users.map((u: any) => [String(u._id), u]));
+  const projectMap = new Map(projects.map((p: any) => [String(p._id), p]));
+
+  return tasks.map((task: any) => ({
+    ...normalizeDoc(task),
+    assignee: userMap.get(String(task.userId)),
+    project: projectMap.get(String(task.projectId)),
+  }));
+}
+
+export async function getEmployeeStatusSnapshot() {
+  await requireDb();
+  const users = await User.find({ role: "user" }).lean();
+  const userIds = users.map((u: any) => u._id);
+  const now = new Date();
+
+  const activeEntries = await TimeEntry.find({ userId: { $in: userIds }, status: "active" }).lean();
+  const activeEntryByUser = new Map(activeEntries.map((e: any) => [String(e.userId), e]));
+  const activeEntryIds = activeEntries.map((e: any) => e._id);
+  const activeBreaks = await BreakLog.find({
+    timeEntryId: { $in: activeEntryIds },
+    $or: [{ breakEnd: { $exists: false } }, { breakEnd: null }],
+  }).lean();
+  const breakEntrySet = new Set(activeBreaks.map((b: any) => String(b.timeEntryId)));
+
+  const leaveToday = await LeaveApplication.find({
+    userId: { $in: userIds },
+    status: "approved",
+    startDate: { $lte: now },
+    endDate: { $gte: now },
+  }).lean();
+  const leaveUserSet = new Set(leaveToday.map((l: any) => String(l.userId)));
+
+  return users.map((u: any) => {
+    const activeEntry = activeEntryByUser.get(String(u._id));
+    const status = activeEntry
+      ? breakEntrySet.has(String(activeEntry._id))
+        ? "on_break"
+        : "timed_in"
+      : leaveUserSet.has(String(u._id))
+        ? "on_leave"
+        : "offline";
+    let timeIn = null;
+    let hours = null;
+    if (activeEntry) {
+      timeIn = activeEntry.timeIn;
+      const diffMs = now.getTime() - new Date(activeEntry.timeIn).getTime();
+      hours = `${(diffMs / (1000 * 60 * 60)).toFixed(1)}h`;
+    }
+
+    return {
+      id: String(u._id),
+      name: u.name,
+      designation: u.position || "Employee",
+      status,
+      timeIn,
+      hours,
+    };
+  });
+}
+
+export async function getAverageHoursByDay(days = 5) {
+  await requireDb();
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - (days - 1));
+  start.setHours(0, 0, 0, 0);
+
+  const entries = await TimeEntry.find({
+    timeIn: { $gte: start, $lte: end },
+    status: { $ne: "active" },
+  }).lean();
+
+  const dayMap = new Map<string, { total: number; count: number }>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = d.toISOString().slice(0, 10);
+    dayMap.set(key, { total: 0, count: 0 });
+  }
+
+  entries.forEach((entry: any) => {
+    const key = new Date(entry.timeIn).toISOString().slice(0, 10);
+    const bucket = dayMap.get(key);
+    if (!bucket) return;
+    const hours = entry.totalHours
+      ? Number(entry.totalHours)
+      : entry.timeOut
+        ? (new Date(entry.timeOut).getTime() - new Date(entry.timeIn).getTime()) / (1000 * 60 * 60)
+        : 0;
+    bucket.total += hours;
+    bucket.count += 1;
+  });
+
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return Array.from(dayMap.entries()).map(([key, bucket]) => {
+    const d = new Date(key);
+    const avg = bucket.count ? bucket.total / bucket.count : 0;
+    return { day: labels[d.getDay()], hours: Number(avg.toFixed(1)) };
+  });
+}
+
+export async function getTimeEntriesByRangeForAll(startDate: Date, endDate: Date) {
+  await requireDb();
+  const entries = await TimeEntry.find({
+    timeIn: { $gte: startDate, $lte: endDate },
+  }).lean();
+  return normalizeDocs(entries);
+}
+
+export async function getAllPayslipsWithUsers() {
+  await requireDb();
+  const payslips = await Payslip.find()
+    .sort({ createdAt: -1 })
+    .populate("userId")
+    .lean();
+  return payslips.map((p: any) => ({
+    ...normalizeDoc(p),
+    user: p.userId ? normalizeDoc(p.userId as any) : undefined,
+  }));
 }

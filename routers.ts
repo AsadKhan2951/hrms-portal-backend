@@ -340,11 +340,29 @@ export const appRouter = router({
       return payslip || null;
     }),
 
+    // Get payslip history
+    getPayslips: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getPayslipsByUser(ctx.user.id);
+    }),
+
     // Get announcements
     getAnnouncements: protectedProcedure.query(async () => {
       const announcements = await db.getActiveAnnouncements();
       return announcements || [];
     }),
+
+    // Get announcement read IDs for current user
+    getAnnouncementReadIds: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getAnnouncementReadIds(ctx.user.id);
+    }),
+
+    // Mark announcement as read
+    markAnnouncementRead: protectedProcedure
+      .input(z.object({ announcementId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.markAnnouncementAsRead(input.announcementId, ctx.user.id);
+        return { success: true };
+      }),
 
     // Get all users for chat
     getUsers: protectedProcedure.query(async () => {
@@ -631,6 +649,169 @@ export const appRouter = router({
           }
           throw error;
         }
+      }),
+  }),
+
+  admin: router({
+    getLeaveRequests: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getAllLeaveApplicationsWithUsers();
+    }),
+
+    updateLeaveRequest: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          status: z.enum(["pending", "approved", "rejected"]),
+          rejectionReason: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        await db.updateLeaveApplicationStatus(input.id, input.status, ctx.user.id, input.rejectionReason);
+        return { success: true };
+      }),
+
+    getFormSubmissions: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getAllFormSubmissionsWithUsers();
+    }),
+
+    updateFormSubmission: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          status: z.enum(["submitted", "under_review", "resolved", "closed"]),
+          response: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        await db.updateFormSubmissionStatus(input.id, input.status, ctx.user.id, input.response);
+        return { success: true };
+      }),
+
+    getProjectsOverview: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getProjectsWithAssignments();
+    }),
+
+    assignProject: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          description: z.string().optional(),
+          priority: z.enum(["low", "medium", "high"]).default("medium"),
+          employeeIds: z.array(z.string()).min(1),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        const projectId = await db.createProject({
+          name: input.name,
+          description: input.description,
+          priority: input.priority,
+          status: "active",
+          source: "team_lead",
+          createdBy: ctx.user.id,
+        });
+        for (const userId of input.employeeIds) {
+          await db.assignUserToProject(projectId, userId);
+        }
+        return { success: true, projectId };
+      }),
+
+    getOngoingTasks: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getOngoingTasksWithAssignments();
+    }),
+
+    getEmployeeStatusSnapshot: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getEmployeeStatusSnapshot();
+    }),
+
+    getAverageHours: protectedProcedure
+      .input(z.object({ days: z.number().optional() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return await db.getAverageHoursByDay(input.days ?? 5);
+      }),
+
+    getTimeEntriesByRange: protectedProcedure
+      .input(
+        z.object({
+          startDate: z.date(),
+          endDate: z.date(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return await db.getTimeEntriesByRangeForAll(input.startDate, input.endDate);
+      }),
+
+    getPayslips: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getAllPayslipsWithUsers();
+    }),
+
+    getAnnouncements: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
+      return await db.getAnnouncementsWithReadCounts();
+    }),
+
+    createAnnouncement: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          content: z.string().min(1),
+          priority: z.enum(["low", "medium", "high"]).default("medium"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        return await db.createAnnouncement({
+          title: input.title,
+          content: input.content,
+          priority: input.priority,
+          createdBy: ctx.user.id,
+        });
+      }),
+
+    deleteAnnouncement: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+        }
+        await db.deleteAnnouncement(input.id);
+        return { success: true };
       }),
   }),
 
