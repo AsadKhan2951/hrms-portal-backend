@@ -556,7 +556,7 @@ export const Qualification = model<IQualification>('Qualification', qualificatio
 export interface IEmployeeDocument extends Document {
   _id: Types.ObjectId;
   userId: Types.ObjectId;
-  documentType: 'offer_letter' | 'contract' | 'id_proof' | 'policy_acknowledgment' | 'other';
+  documentType: 'offer_letter' | 'contract' | 'id_proof' | 'id_proof_front' | 'id_proof_back' | 'policy_acknowledgment' | 'other';
   title: string;
   documentUrl: string;
   uploadedBy: Types.ObjectId;
@@ -565,7 +565,7 @@ export interface IEmployeeDocument extends Document {
 
 const employeeDocumentSchema = new Schema<IEmployeeDocument>({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  documentType: { type: String, enum: ['offer_letter', 'contract', 'id_proof', 'policy_acknowledgment', 'other'], required: true },
+  documentType: { type: String, enum: ['offer_letter', 'contract', 'id_proof', 'id_proof_front', 'id_proof_back', 'policy_acknowledgment', 'other'], required: true },
   title: { type: String, required: true },
   documentUrl: { type: String, required: true },
   uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

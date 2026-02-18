@@ -234,7 +234,14 @@ export async function updateEmployee(userId: string, updates: {
 
 export async function upsertEmployeeDocument(input: {
   userId: string;
-  documentType: "offer_letter" | "contract" | "id_proof" | "policy_acknowledgment" | "other";
+  documentType:
+    | "offer_letter"
+    | "contract"
+    | "id_proof"
+    | "id_proof_front"
+    | "id_proof_back"
+    | "policy_acknowledgment"
+    | "other";
   title: string;
   documentUrl: string;
   uploadedBy: string;

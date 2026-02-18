@@ -505,7 +505,8 @@ export const appRouter = router({
           password: z.string().min(6),
           department: z.string().min(1),
           position: z.string().min(1),
-          cnicDocumentUrl: z.string().optional(),
+          cnicFrontUrl: z.string().optional(),
+          cnicBackUrl: z.string().optional(),
           offerLetterUrl: z.string().optional(),
         })
       )
@@ -524,12 +525,22 @@ export const appRouter = router({
             position: input.position,
           });
 
-          if (input.cnicDocumentUrl) {
+          if (input.cnicFrontUrl) {
             await db.upsertEmployeeDocument({
               userId: employee!.id,
-              documentType: "id_proof",
-              title: "CNIC Document",
-              documentUrl: input.cnicDocumentUrl,
+              documentType: "id_proof_front",
+              title: "CNIC Front",
+              documentUrl: input.cnicFrontUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          if (input.cnicBackUrl) {
+            await db.upsertEmployeeDocument({
+              userId: employee!.id,
+              documentType: "id_proof_back",
+              title: "CNIC Back",
+              documentUrl: input.cnicBackUrl,
               uploadedBy: ctx.user.id,
             });
           }
@@ -566,7 +577,8 @@ export const appRouter = router({
           password: z.string().min(6).optional(),
           department: z.string().optional(),
           position: z.string().optional(),
-          cnicDocumentUrl: z.string().optional(),
+          cnicFrontUrl: z.string().optional(),
+          cnicBackUrl: z.string().optional(),
           offerLetterUrl: z.string().optional(),
         })
       )
@@ -576,15 +588,25 @@ export const appRouter = router({
         }
 
         try {
-          const { id, cnicDocumentUrl, offerLetterUrl, ...updates } = input;
+          const { id, cnicFrontUrl, cnicBackUrl, offerLetterUrl, ...updates } = input;
           const employee = await db.updateEmployee(id, updates);
 
-          if (cnicDocumentUrl) {
+          if (cnicFrontUrl) {
             await db.upsertEmployeeDocument({
               userId: id,
-              documentType: "id_proof",
-              title: "CNIC Document",
-              documentUrl: cnicDocumentUrl,
+              documentType: "id_proof_front",
+              title: "CNIC Front",
+              documentUrl: cnicFrontUrl,
+              uploadedBy: ctx.user.id,
+            });
+          }
+
+          if (cnicBackUrl) {
+            await db.upsertEmployeeDocument({
+              userId: id,
+              documentType: "id_proof_back",
+              title: "CNIC Back",
+              documentUrl: cnicBackUrl,
               uploadedBy: ctx.user.id,
             });
           }
