@@ -235,6 +235,11 @@ export const appRouter = router({
       .query(async ({ input, ctx }) => {
         return await db.getTimeEntriesByDateRange(ctx.user.id, input.startDate, input.endDate);
       }),
+
+    // Get completed tasks for today
+    getCompletedTasksForToday: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getCompletedTasksForUserByDate(ctx.user.id, new Date());
+    }),
   }),
 
   leaves: router({
@@ -415,17 +420,22 @@ export const appRouter = router({
         title: z.string(),
         description: z.string().optional(),
         priority: z.enum(["low", "medium", "high"]).optional(),
+        status: z.enum(["todo", "in_progress", "completed", "blocked"]).optional(),
+        timeEntryId: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        await db.createProjectTask({
+        const created = await db.createProjectTask({
           projectId: input.projectId,
           userId: ctx.user.id,
           title: input.title,
           description: input.description,
           priority: input.priority || "medium",
+          status: input.status || "todo",
+          completedAt: input.status === "completed" ? new Date() : undefined,
+          timeEntryId: input.timeEntryId,
         });
 
-        return { success: true };
+        return { success: true, task: created };
       }),
 
     // Update task

@@ -573,17 +573,44 @@ export async function assignUserToProject(projectId: string, userId: string) {
 
 export async function createProjectTask(task: Record<string, unknown>) {
   await requireDb();
-  await ProjectTask.create({
+  const created = await ProjectTask.create({
     ...task,
     projectId: task.projectId ? toObjectId(task.projectId as string) : undefined,
     userId: task.userId ? toObjectId(task.userId as string) : undefined,
     timeEntryId: task.timeEntryId ? toObjectId(task.timeEntryId as string) : undefined,
   });
+  return normalizeDoc(created);
 }
 
 export async function updateProjectTask(id: string, updates: Record<string, unknown>) {
   await requireDb();
   await ProjectTask.findByIdAndUpdate(toObjectId(id), updates);
+}
+
+export async function getCompletedTasksForUserByDate(userId: string, date: Date) {
+  if (!(await optionalDb())) return [];
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+
+  const tasks = await ProjectTask.find({
+    userId: toObjectId(userId),
+    status: "completed",
+    $or: [
+      { completedAt: { $gte: start, $lte: end } },
+      { completedAt: { $exists: false }, updatedAt: { $gte: start, $lte: end } },
+      { completedAt: null, updatedAt: { $gte: start, $lte: end } },
+    ],
+  })
+    .populate("projectId")
+    .sort({ completedAt: -1, updatedAt: -1 })
+    .lean();
+
+  return tasks.map((task: any) => ({
+    ...normalizeDoc(task),
+    project: task.projectId ? normalizeDoc(task.projectId as any) : undefined,
+  }));
 }
 
 export async function getProjectStats(userId: string) {
