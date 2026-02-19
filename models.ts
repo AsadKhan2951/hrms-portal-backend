@@ -68,6 +68,7 @@ export interface IBreakLog extends Document {
   timeEntryId: Types.ObjectId;
   userId: Types.ObjectId;
   breakStart: Date;
+  reason?: string;
   breakEnd?: Date;
   duration?: number;
   createdAt: Date;
@@ -77,6 +78,7 @@ const breakLogSchema = new Schema<IBreakLog>({
   timeEntryId: { type: Schema.Types.ObjectId, ref: 'TimeEntry', required: true },
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   breakStart: { type: Date, required: true },
+  reason: String,
   breakEnd: Date,
   duration: Number,
   createdAt: { type: Date, default: Date.now },

@@ -16,7 +16,14 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: protectedProcedure.mutation(async ({ ctx }) => {
+      const activeEntry = await db.getActiveTimeEntry(ctx.user.id);
+      if (activeEntry) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Please clock out before logging out",
+        });
+      }
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return {
@@ -236,7 +243,11 @@ export const appRouter = router({
     }),
 
     // Start break
-    startBreak: protectedProcedure.mutation(async ({ ctx }) => {
+    startBreak: protectedProcedure
+      .input(z.object({
+        reason: z.enum(["Smoke", "Meeting", "Lunch", "Outgoing", "Sleeping"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
       const activeEntry = await db.getActiveTimeEntry(ctx.user.id);
       
       if (!activeEntry) {
@@ -258,6 +269,7 @@ export const appRouter = router({
         timeEntryId: activeEntry.id,
         userId: ctx.user.id,
         breakStart: new Date(),
+        reason: input.reason,
       });
 
       return { success: true };

@@ -340,6 +340,7 @@ export async function createBreakLog(breakLog: {
   timeEntryId: string;
   userId: string;
   breakStart: Date;
+  reason?: string;
 }) {
   await requireDb();
   const created = await BreakLog.create({
