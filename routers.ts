@@ -475,6 +475,7 @@ export const appRouter = router({
         name: z.string(),
         description: z.string().optional(),
         priority: z.enum(["low", "medium", "high"]).optional(),
+        employeeIds: z.array(z.string()).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         const projectId = await db.createProject({
@@ -486,8 +487,14 @@ export const appRouter = router({
           createdBy: ctx.user.id,
         });
 
-        // Auto-assign creator to the project
-        await db.assignUserToProject(projectId, ctx.user.id);
+        const uniqueEmployeeIds = new Set<string>([
+          ctx.user.id,
+          ...(input.employeeIds || []),
+        ]);
+
+        for (const userId of uniqueEmployeeIds) {
+          await db.assignUserToProject(projectId, userId);
+        }
 
         return { success: true, projectId };
       }),
