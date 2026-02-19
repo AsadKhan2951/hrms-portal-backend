@@ -10,6 +10,8 @@ export interface IUser extends Document {
   role: 'user' | 'admin';
   employeeId?: string;
   password?: string;
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
   avatar?: string;
   department?: string;
   position?: string;
@@ -26,6 +28,8 @@ const userSchema = new Schema<IUser>({
   role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
   employeeId: { type: String, unique: true, sparse: true },
   password: String,
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorSecret: String,
   avatar: String,
   department: String,
   position: String,

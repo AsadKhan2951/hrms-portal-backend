@@ -10,8 +10,11 @@ export type AuthenticatedUser = NonNullable<
   Awaited<ReturnType<typeof db.getUserById>>
 >;
 
+type SessionPurpose = "session" | "two_factor";
+
 type SessionPayload = {
   userId: string;
+  purpose?: SessionPurpose;
 };
 
 function getSessionSecret() {
@@ -23,18 +26,41 @@ function getSessionSecret() {
 
 export async function createSessionToken(
   userId: string,
-  options: { expiresInMs?: number } = {}
+  options: { expiresInMs?: number; purpose?: SessionPurpose } = {}
 ): Promise<string> {
   const issuedAt = Date.now();
   const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
   const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
   const secretKey = getSessionSecret();
+  const purpose: SessionPurpose = options.purpose ?? "session";
 
-  return new SignJWT({ userId } satisfies SessionPayload)
+  return new SignJWT({ userId, purpose } satisfies SessionPayload)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
     .setExpirationTime(expirationSeconds)
     .sign(secretKey);
+}
+
+export async function verifySessionToken(
+  token: string,
+  expectedPurpose: SessionPurpose = "session"
+) {
+  const secretKey = getSessionSecret();
+  const { payload } = await jwtVerify(token, secretKey, {
+    algorithms: ["HS256"],
+  });
+
+  const userId = typeof payload.userId === "string" ? payload.userId : "";
+  if (!userId) {
+    throw new Error("Invalid session payload");
+  }
+
+  const purpose = (payload as SessionPayload).purpose ?? "session";
+  if (purpose !== expectedPurpose) {
+    throw new Error("Invalid session purpose");
+  }
+
+  return { userId };
 }
 
 export function setSessionCookie(
@@ -56,15 +82,7 @@ export async function authenticateRequest(req: Request): Promise<AuthenticatedUs
     throw new Error("Missing session cookie");
   }
 
-  const secretKey = getSessionSecret();
-  const { payload } = await jwtVerify(token, secretKey, {
-    algorithms: ["HS256"],
-  });
-
-  const userId = typeof payload.userId === "string" ? payload.userId : "";
-  if (!userId) {
-    throw new Error("Invalid session payload");
-  }
+  const { userId } = await verifySessionToken(token, "session");
 
   const user = await db.getUserById(userId);
   if (!user) {
@@ -81,11 +99,7 @@ export async function getUserIdFromCookieHeader(cookieHeader?: string) {
   if (!token) return null;
 
   try {
-    const secretKey = getSessionSecret();
-    const { payload } = await jwtVerify(token, secretKey, {
-      algorithms: ["HS256"],
-    });
-    const userId = typeof payload.userId === "string" ? payload.userId : "";
+    const { userId } = await verifySessionToken(token, "session");
     return userId || null;
   } catch {
     return null;

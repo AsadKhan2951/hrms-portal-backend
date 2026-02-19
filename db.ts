@@ -98,7 +98,7 @@ function normalizeDocs<T extends { _id?: Types.ObjectId }>(docs: T[]) {
 
 function sanitizeUser(user: any) {
   if (!user) return user;
-  const { password, ...rest } = user;
+  const { password, twoFactorSecret, ...rest } = user;
   return rest;
 }
 
@@ -264,6 +264,26 @@ export async function getUserById(id: string) {
   if (!(await optionalDb())) return undefined;
   const user = await User.findById(toObjectId(id)).lean();
   return sanitizeUser(normalizeDoc(user));
+}
+
+export async function getUserByIdWithSecret(id: string) {
+  if (!(await optionalDb())) return undefined;
+  const user = await User.findById(toObjectId(id)).lean();
+  return normalizeDoc(user);
+}
+
+export async function setUserTwoFactorSecret(userId: string, secret: string) {
+  await requireDb();
+  await User.findByIdAndUpdate(toObjectId(userId), {
+    twoFactorSecret: secret,
+  });
+}
+
+export async function setUserTwoFactorEnabled(userId: string, enabled: boolean) {
+  await requireDb();
+  await User.findByIdAndUpdate(toObjectId(userId), {
+    twoFactorEnabled: enabled,
+  });
 }
 
 export async function updateUserAvatar(userId: string, avatar: string) {

@@ -5,7 +5,9 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
-import { createSessionToken, setSessionCookie } from "./_core/auth";
+import { createSessionToken, setSessionCookie, verifySessionToken } from "./_core/auth";
+import { authenticator } from "otplib";
+import { toDataURL } from "qrcode";
 import { emitChatMessage, emitNotification } from "./_core/realtime";
 
 export const appRouter = router({
@@ -38,6 +40,47 @@ export const appRouter = router({
           });
         }
 
+        if (user.role === "admin") {
+          const fullUser = await db.getUserByIdWithSecret(user.id);
+          if (!fullUser) {
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message: "User not found",
+            });
+          }
+
+          let twoFactorSecret = fullUser.twoFactorSecret as string | undefined;
+          const twoFactorEnabled = Boolean(fullUser.twoFactorEnabled);
+          let setupRequired = !twoFactorEnabled;
+          let qrCodeDataUrl: string | undefined;
+
+          if (!twoFactorSecret) {
+            twoFactorSecret = authenticator.generateSecret();
+            await db.setUserTwoFactorSecret(user.id, twoFactorSecret);
+            setupRequired = true;
+          }
+
+          if (setupRequired && twoFactorSecret) {
+            const label = fullUser.email || fullUser.employeeId || "admin";
+            const otpauth = authenticator.keyuri(label, "RadFlow HRMS", twoFactorSecret);
+            qrCodeDataUrl = await toDataURL(otpauth);
+          }
+
+          const twoFactorToken = await createSessionToken(user.id, {
+            expiresInMs: 10 * 60 * 1000,
+            purpose: "two_factor",
+          });
+
+          return {
+            success: true,
+            requiresTwoFactor: true,
+            setupRequired,
+            twoFactorToken,
+            qrCodeDataUrl,
+            secret: setupRequired ? twoFactorSecret : undefined,
+          };
+        }
+
         const maxAgeMs = 30 * 24 * 60 * 60 * 1000;
         const token = await createSessionToken(user.id, { expiresInMs: maxAgeMs });
         setSessionCookie(ctx.res, ctx.req, token, maxAgeMs);
@@ -53,6 +96,42 @@ export const appRouter = router({
             position: user.position,
           },
         };
+      }),
+
+    verifyTwoFactor: publicProcedure
+      .input(
+        z.object({
+          token: z.string(),
+          code: z.string().min(4),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { userId } = await verifySessionToken(input.token, "two_factor");
+        const user = await db.getUserByIdWithSecret(userId);
+        if (!user || user.role !== "admin") {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+
+        const secret = user.twoFactorSecret as string | undefined;
+        if (!secret) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Two-factor not configured" });
+        }
+
+        const code = input.code.replace(/\s+/g, "");
+        const isValid = authenticator.verify({ token: code, secret });
+        if (!isValid) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid verification code" });
+        }
+
+        if (!user.twoFactorEnabled) {
+          await db.setUserTwoFactorEnabled(userId, true);
+        }
+
+        const maxAgeMs = 30 * 24 * 60 * 60 * 1000;
+        const token = await createSessionToken(userId, { expiresInMs: maxAgeMs });
+        setSessionCookie(ctx.res, ctx.req, token, maxAgeMs);
+
+        return { success: true };
       }),
 
     // Update user avatar
