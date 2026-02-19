@@ -61,3 +61,8 @@ export function emitNotification(payload: { userId: string }) {
   if (!io) return;
   io.to(payload.userId).emit("notifications:new", payload);
 }
+
+export function emitAnnouncement(payload: { announcementId?: string }) {
+  if (!io) return;
+  io.emit("announcements:new", payload);
+}

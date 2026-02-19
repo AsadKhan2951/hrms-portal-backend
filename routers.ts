@@ -8,7 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { createSessionToken, setSessionCookie, verifySessionToken } from "./_core/auth";
 import { authenticator } from "otplib";
 import { toDataURL } from "qrcode";
-import { emitChatMessage, emitNotification } from "./_core/realtime";
+import { emitChatMessage, emitNotification, emitAnnouncement } from "./_core/realtime";
 
 export const appRouter = router({
   system: systemRouter,
@@ -904,12 +904,32 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
         }
-        return await db.createAnnouncement({
+        const announcement = await db.createAnnouncement({
           title: input.title,
           content: input.content,
           priority: input.priority,
           createdBy: ctx.user.id,
         });
+
+        const users = await db.getAllUsers();
+        await Promise.all(
+          users.map(async (user: any) => {
+            await db.createNotification({
+              userId: user.id,
+              type: "announcement",
+              title: input.title,
+              message: input.content,
+              priority: input.priority,
+              relatedId: announcement?.id,
+              relatedType: "announcement",
+            });
+            emitNotification({ userId: user.id });
+          })
+        );
+
+        emitAnnouncement({ announcementId: announcement?.id });
+
+        return announcement;
       }),
 
     deleteAnnouncement: protectedProcedure
@@ -1043,13 +1063,29 @@ export const appRouter = router({
         endTime: z.date(),
         eventType: z.enum(["reminder", "personal", "deadline", "holiday"]),
         isAllDay: z.boolean().default(false),
+        participantIds: z.array(z.string()).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const event = await db.createCalendarEvent({
-          ...input,
-          userId: ctx.user.id,
-        });
-        return event;
+        const targets = new Set<string>([
+          ctx.user.id,
+          ...(input.participantIds || []),
+        ]);
+
+        let firstEvent: any = null;
+        for (const userId of targets) {
+          const created = await db.createCalendarEvent({
+            title: input.title,
+            description: input.description,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            eventType: input.eventType,
+            isAllDay: input.isAllDay,
+            userId,
+          });
+          if (!firstEvent) firstEvent = created;
+        }
+
+        return firstEvent;
       }),
 
     // Get user's calendar events
